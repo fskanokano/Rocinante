@@ -234,6 +234,18 @@
     if __name__ == '__main__':
         app.run('0.0.0.0', 8000, debug=True)
 
+#### Allow CORS
+
+    from rocinante import Rocinante
+    from rocinante.middleware import CORSMiddleware
+    
+    app = Rocinante()
+    
+    app.add_middleware(CORSMiddleware)
+    
+    if __name__ == '__main__':
+        app.run('0.0.0.0', 8000)
+
 #### Demos
 
     Check demos in demos package
