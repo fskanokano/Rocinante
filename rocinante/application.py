@@ -1,13 +1,15 @@
+import json
+from typing import Type
 from inspect import isfunction
 from typing import Callable
 from collections import Iterable
 
-from werkzeug import run_simple, Response
+from werkzeug import run_simple, Response, Request as WerkzeugRequest
 from werkzeug.exceptions import NotFound
 from werkzeug.routing import Map, Rule
 
 from .request import Request
-from .response import NotFoundResponse, MethodNotAllowedResponse, JSONResponse
+# from .response import NotFoundResponse, MethodNotAllowedResponse, JSONResponse
 from .config import Config
 from .cache import HandlerLRUCache
 
@@ -25,11 +27,53 @@ class Rocinante(object):
 
     _cache = HandlerLRUCache()
 
-    def __init__(self, handler_cache_capacity: int = 128):
+    def __init__(
+            self,
+            request_class: Type[WerkzeugRequest] = Request,
+            response_class: Type[Response] = Response,
+            json_response_class: Type[Response] = None,
+            not_found_response_class: Type[Response] = None,
+            method_not_allowed_response_class: [Response] = None,
+            handler_cache_capacity: int = 128
+    ):
+        """
+        accept subclass of werkzeug.Request or subclass of werkzeug.Response
+        """
+
+        # make sure request class and response class is correct
+        self._check_request_class(request_class)
+
+        self._check_response_class(
+            response_class
+        )
+
+        self._check_processed_response_class(
+            json_response_class,
+            not_found_response_class,
+            method_not_allowed_response_class
+        )
+
+        self.request_class = request_class
+        self.response_class = response_class
         self.handler_cache_capacity = handler_cache_capacity
 
+        if json_response_class is None:
+            self.json_response_class = self._generate_json_response_class()
+        else:
+            self.json_response_class = json_response_class
+
+        if not_found_response_class is None:
+            self.not_found_response_class = self._generate_not_found_response_class()
+        else:
+            self.not_found_response_class = not_found_response_class
+
+        if method_not_allowed_response_class is None:
+            self.method_not_allowed_response_class = self._generate_method_not_allowed_response_class()
+        else:
+            self.method_not_allowed_response_class = method_not_allowed_response_class
+
     def __call__(self, environ: dict, start_response):
-        request = Request(environ)
+        request = self.request_class(environ)
 
         # iterate process_request of middlewares
         _process_request = self._iter_process_request(request)
@@ -66,13 +110,13 @@ class Rocinante(object):
                         mounted_wsgi_app_response = wsgi_app(environ, start_response)
                         return mounted_wsgi_app_response
 
-                return NotFoundResponse()(environ, start_response)
+                return self.not_found_response_class()(environ, start_response)
 
         # handle fbv
         if isfunction(endpoint):
             allow_methods = endpoint.allow_methods
             if request.method not in allow_methods:
-                return MethodNotAllowedResponse()(environ, start_response)
+                return self.method_not_allowed_response_class()(environ, start_response)
 
             # iterate process_view of middlewares
             _process_view = self._iter_process_view(request, endpoint)
@@ -93,9 +137,9 @@ class Rocinante(object):
             if method is None:
                 implement_method = handler.implement_method
                 if len(implement_method) >= 1:
-                    return MethodNotAllowedResponse()(environ, start_response)
+                    return self.method_not_allowed_response_class()(environ, start_response)
                 else:
-                    return NotFoundResponse()(environ, start_response)
+                    return self.not_found_response_class()(environ, start_response)
 
             # iterate process_view of middlewares
             _process_view = self._iter_process_view(request, method)
@@ -109,10 +153,7 @@ class Rocinante(object):
 
         # process object not the instance of Response class
         if not isinstance(response, Response):
-            if isinstance(response, tuple) and isinstance(response[1], int):
-                response = self._make_response(*response)
-            elif isinstance(response, Iterable):
-                response = self._make_response(response)
+            response = self._process_response(response)
 
         # iterate process_response of middlewares
         response = self._iter_process_response(request, response)
@@ -166,8 +207,100 @@ class Rocinante(object):
 
         self._mounted_wsgi_apps[path] = app
 
-    def run(self, host, port, *, debug: bool = False):
+    def run(self, host: str = '0.0.0.0', port: int = 8000, *, debug: bool = True):
         run_simple(host, port, self, use_debugger=debug, use_reloader=debug)
+
+    def _process_response(self, response):
+        if isinstance(response, tuple):
+            if len(response) < 1 or len(response) > 2:
+                raise Exception('Invalid tuple.')
+            if len(response) == 1:
+                content = response[0]
+                status_code = 200
+            elif len(response) == 2:
+                content = response[0]
+                status_code = response[1]
+            if not isinstance(content, Iterable):
+                raise Exception('Invalid Iterable object.')
+            if not isinstance(status_code, int):
+                raise Exception('Invalid status code.')
+            processed_response = self._make_response(content, status_code)
+        else:
+            if not isinstance(response, Iterable):
+                raise Exception('Invalid Iterable object.')
+            processed_response = self._make_response(response)
+        return processed_response
+
+    @staticmethod
+    def _check_request_class(*request_classes):
+        for request_class in request_classes:
+            if not issubclass(request_class, WerkzeugRequest):
+                raise Exception('Invalid request class.')
+
+    @staticmethod
+    def _check_response_class(*response_classes):
+        for response_class in response_classes:
+            if not issubclass(response_class, Response):
+                raise Exception('Invalid response class.')
+
+    @staticmethod
+    def _check_processed_response_class(*processed_response_classes):
+        for processed_response_class in processed_response_classes:
+            if processed_response_class is not None:
+                if not issubclass(processed_response_class, Response):
+                    raise Exception('Invalid response class.')
+
+    def _generate_json_response_class(self):
+
+        class JSONResponse(self.response_class):
+
+            def __init__(
+                    self,
+                    response=None,
+                    status=None,
+                    headers=None,
+                    mimetype='application/json',
+                    content_type=None,
+                    direct_passthrough=False,
+            ):
+                response = json.dumps(response)
+                super().__init__(response, status, headers, mimetype, content_type, direct_passthrough)
+
+        return JSONResponse
+
+    def _generate_not_found_response_class(self):
+
+        class NotFoundResponse(self.response_class):
+
+            def __init__(
+                    self,
+                    response='Not Found',
+                    status=404,
+                    headers=None,
+                    mimetype=None,
+                    content_type=None,
+                    direct_passthrough=False,
+            ):
+                super().__init__(response, status, headers, mimetype, content_type, direct_passthrough)
+
+        return NotFoundResponse
+
+    def _generate_method_not_allowed_response_class(self):
+
+        class MethodNotAllowedResponse(self.response_class):
+
+            def __init__(
+                    self,
+                    response='Method Not Allowed',
+                    status=405,
+                    headers=None,
+                    mimetype=None,
+                    content_type=None,
+                    direct_passthrough=False,
+            ):
+                super().__init__(response, status, headers, mimetype, content_type, direct_passthrough)
+
+        return MethodNotAllowedResponse
 
     @staticmethod
     def _process_environ(environ, request, path):
@@ -178,10 +311,9 @@ class Rocinante(object):
         environ['RAW_URI'] = wsgi_app_url
         return environ
 
-    @staticmethod
-    def _make_response(content, status=None):
+    def _make_response(self, content, status=None):
         if isinstance(content, Iterable):
-            return JSONResponse(content, status)
+            return self.json_response_class(content, status)
 
     def _iter_process_request(self, request):
         for middleware in self._middlewares:

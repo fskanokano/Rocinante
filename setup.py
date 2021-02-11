@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name='Rocinante',
-    version='1.2.1',
+    version='1.3',
     author='sui',
     author_email='2315375425@qq.com',
     description='Rocinante is a lightweight WSGI web application framework based on Werkzeug.',
