@@ -42,7 +42,7 @@
     
     app.add_handler('/', HelloHandler)
     
-    # user router
+    # use router
     router = Router()
     
     # different way to register handler
@@ -248,4 +248,4 @@
 
 #### Demos
 
-    Check demos in demos package
+    Check demos in the package "demos"

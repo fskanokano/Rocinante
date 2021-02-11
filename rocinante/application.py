@@ -9,6 +9,7 @@ from werkzeug.routing import Map, Rule
 from .request import Request
 from .response import NotFoundResponse, MethodNotAllowedResponse, JSONResponse
 from .config import Config
+from .cache import HandlerLRUCache
 
 
 class Rocinante(object):
@@ -22,6 +23,11 @@ class Rocinante(object):
 
     _mounted_wsgi_apps = {}
 
+    _cache = HandlerLRUCache()
+
+    def __init__(self, handler_cache_capacity: int = 128):
+        self.handler_cache_capacity = handler_cache_capacity
+
     def __call__(self, environ: dict, start_response):
         request = Request(environ)
 
@@ -30,22 +36,37 @@ class Rocinante(object):
         if isinstance(_process_request, Response):
             return _process_request(environ, start_response)
 
-        # get adapter
-        adapter = self.url_map.bind_to_environ(environ)
+        # try to get cached handler
+        cached_dict = self._cache.get(request.path)
 
-        # try to match the endpoint and kwargs
-        try:
-            endpoint, kwargs = adapter.match()
-        except NotFound:
+        # success get cached endpoint
+        if cached_dict is not None:
+            endpoint = cached_dict['endpoint']
+            kwargs = cached_dict['kwargs']
 
-            # try to match mounted wsgi apps
-            for path, wsgi_app in self._mounted_wsgi_apps.items():
-                if request.path.startswith(path):
-                    environ = self._process_environ(environ, request, path)
-                    mounted_wsgi_app_response = wsgi_app(environ, start_response)
-                    return mounted_wsgi_app_response
+        # cannot get cached handler
+        else:
 
-            return NotFoundResponse()(environ, start_response)
+            # get adapter
+            adapter = self.url_map.bind_to_environ(environ)
+
+            # try to match the endpoint and kwargs
+            try:
+                endpoint, kwargs = adapter.match()
+
+                # set endpoint to cache
+                self._cache.set(request.path, {'endpoint': endpoint, 'kwargs': kwargs})
+
+            except NotFound:
+
+                # try to match mounted wsgi apps
+                for path, wsgi_app in self._mounted_wsgi_apps.items():
+                    if request.path.startswith(path):
+                        environ = self._process_environ(environ, request, path)
+                        mounted_wsgi_app_response = wsgi_app(environ, start_response)
+                        return mounted_wsgi_app_response
+
+                return NotFoundResponse()(environ, start_response)
 
         # handle fbv
         if isfunction(endpoint):
@@ -63,6 +84,10 @@ class Rocinante(object):
         # handle cbv
         else:
             handler = endpoint(application=self, request=request)
+
+            if cached_dict is not None:
+                # reload the request to cbv
+                handler.reload_request(request)
 
             method = getattr(handler, request.method.lower(), None)
             if method is None:
