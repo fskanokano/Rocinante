@@ -189,7 +189,7 @@ class Rocinante(object):
                 self.url_map.add(Rule(prefix + rule.rule, endpoint=rule.endpoint))
 
     def add_middleware(self, middleware, **kwargs):
-        self._middlewares.append(middleware(**kwargs))
+        self._middlewares.append(middleware(self, **kwargs))
 
     def load_config(self, name, config):
         self._config.set_config(name, config)

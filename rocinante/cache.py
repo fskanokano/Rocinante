@@ -17,8 +17,9 @@ class HandlerLRUCache(object):
 
     def get(self, key: AnyStr):
         if key in self.keys:
-            self.keys.remove(key)
-            self.keys.insert(0, key)
+            if not self.is_head(key):
+                self.keys.remove(key)
+                self.keys.insert(0, key)
             return self.cache[key]
         else:
             return None

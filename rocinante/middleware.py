@@ -1,9 +1,13 @@
 from werkzeug import Response
 
 from .request import Request
+from .application import Rocinante
 
 
 class Middleware(object):
+
+    def __init__(self, application: Rocinante):
+        self.application = application
 
     def process_request(self, request: Request):
         pass
