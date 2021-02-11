@@ -34,14 +34,9 @@ class HandlerLRUCache(object):
             if not self.is_head(key):
                 self.keys.remove(key)
                 self.keys.insert(0, key)
-                print('not head!')
             self.cache[key] = value
 
     def __get__(self, instance, owner):
         return self.__class__(
             instance.handler_cache_capacity
         )
-
-
-if __name__ == '__main__':
-    cache = HandlerLRUCache()
