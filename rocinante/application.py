@@ -159,7 +159,7 @@ class Rocinante(object):
 
     def mount_wsgi_app(self, app: Callable, *, path: str):
         if not path.startswith('/'):
-            raise Exception('Invalid prefix.')
+            raise Exception('Invalid path.')
 
         if not callable(app):
             raise Exception('Invalid wsgi application.')
@@ -182,12 +182,6 @@ class Rocinante(object):
     def _make_response(content, status=None):
         if isinstance(content, Iterable):
             return JSONResponse(content, status)
-
-    def _execute_startup_event(self):
-        for event_dict in self.startup_event:
-            event = event_dict['event']
-            kwargs = event_dict['kwargs']
-            event(**kwargs)
 
     def _iter_process_request(self, request):
         for middleware in self._middlewares:
