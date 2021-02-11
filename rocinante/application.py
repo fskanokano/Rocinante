@@ -9,7 +9,6 @@ from werkzeug.exceptions import NotFound
 from werkzeug.routing import Map, Rule
 
 from .request import Request
-# from .response import NotFoundResponse, MethodNotAllowedResponse, JSONResponse
 from .config import Config
 from .cache import HandlerLRUCache
 
