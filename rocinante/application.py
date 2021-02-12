@@ -7,6 +7,7 @@ from collections import Iterable
 from werkzeug import run_simple, Response, Request as WerkzeugRequest
 from werkzeug.exceptions import NotFound
 from werkzeug.routing import Map, Rule
+from werkzeug.wsgi import ClosingIterator
 
 from .request import Request
 from .config import Config
@@ -25,6 +26,8 @@ class Rocinante(object):
     _mounted_wsgi_apps = {}
 
     _cache = HandlerLRUCache()
+
+    static_file_handlers = {}
 
     def __init__(
             self,
@@ -83,9 +86,18 @@ class Rocinante(object):
         cached_dict = self._cache.get(request.path)
 
         # success get cached endpoint
+        # only handle cbv
         if cached_dict is not None:
-            endpoint = cached_dict['endpoint']
+            handler = cached_dict['handler']
             kwargs = cached_dict['kwargs']
+
+            # reload request to cached handler
+            handler.reload_request(request)
+
+            response = self._handle_cbv(request, handler, kwargs, environ, start_response)
+            # If the response is complete
+            if isinstance(response, ClosingIterator):
+                return response
 
         # cannot get cached handler
         else:
@@ -96,9 +108,6 @@ class Rocinante(object):
             # try to match the endpoint and kwargs
             try:
                 endpoint, kwargs = adapter.match()
-
-                # set endpoint to cache
-                self._cache.set(request.path, {'endpoint': endpoint, 'kwargs': kwargs})
 
             except NotFound:
 
@@ -111,44 +120,25 @@ class Rocinante(object):
 
                 return self.not_found_response_class()(environ, start_response)
 
-        # handle fbv
-        if isfunction(endpoint):
-            allow_methods = endpoint.allow_methods
-            if request.method not in allow_methods:
-                return self.method_not_allowed_response_class()(environ, start_response)
+            # handle fbv
+            if isfunction(endpoint):
 
-            # iterate process_view of middlewares
-            _process_view = self._iter_process_view(request, endpoint)
-            if isinstance(_process_view, Response):
-                return _process_view(environ, start_response)
+                response = self._handle_fbv(request, endpoint, kwargs, environ, start_response)
+                # If the response is complete
+                if isinstance(response, ClosingIterator):
+                    return response
+            else:
+                handler = endpoint(application=self, request=request)
 
-            response = endpoint(request, **kwargs)
+                self._cache.set(request.path, {
+                    'handler': handler,
+                    'kwargs': kwargs
+                })
 
-        # handle cbv
-        else:
-            handler = endpoint(application=self, request=request)
-
-            if cached_dict is not None:
-                # reload the request to cbv
-                handler.reload_request(request)
-
-            method = getattr(handler, request.method.lower(), None)
-            if method is None:
-                implement_method = handler.implement_method
-                if len(implement_method) >= 1:
-                    return self.method_not_allowed_response_class()(environ, start_response)
-                else:
-                    return self.not_found_response_class()(environ, start_response)
-
-            # iterate process_view of middlewares
-            _process_view = self._iter_process_view(request, method)
-            if isinstance(_process_view, Response):
-                return _process_view(environ, start_response)
-
-            # reload the handler to keep the change of request
-            handler.reload_request(request)
-
-            response = method(**kwargs)
+                response = self._handle_cbv(request, handler, kwargs, environ, start_response)
+                # If the response is complete
+                if isinstance(response, ClosingIterator):
+                    return response
 
         # process object not the instance of Response class
         if not isinstance(response, Response):
@@ -172,6 +162,18 @@ class Rocinante(object):
 
     def add_handler(self, rule, handler):
         self.url_map.add(Rule(rule, endpoint=handler))
+
+    def add_static_file_handler(self, handler, *, prefix: str, file_dir: str):
+        if not prefix.startswith('/'):
+            raise Exception('Invalid prefix.')
+
+        handler_name = prefix[1:]
+        if handler_name in self.static_file_handlers.keys():
+            raise Exception('This handler name is already exists.')
+
+        rule = prefix + '/<file_name>'
+        self.url_map.add(Rule(rule, endpoint=handler))
+        self.static_file_handlers[handler_name] = file_dir
 
     @staticmethod
     def startup():
@@ -208,6 +210,39 @@ class Rocinante(object):
 
     def run(self, host: str = '0.0.0.0', port: int = 8000, *, debug: bool = True):
         run_simple(host, port, self, use_debugger=debug, use_reloader=debug)
+
+    def _handle_cbv(self, request, handler, kwargs, environ, start_response):
+        method = getattr(handler, request.method.lower(), None)
+        if method is None:
+            implement_method = handler.implement_method
+            if len(implement_method) >= 1:
+                return self.method_not_allowed_response_class()(environ, start_response)
+            else:
+                return self.not_found_response_class()(environ, start_response)
+
+        # iterate process_view of middlewares
+        _process_view = self._iter_process_view(request, method)
+        if isinstance(_process_view, Response):
+            return _process_view(environ, start_response)
+
+        # reload the handler to keep the change of request
+        handler.reload_request(request)
+
+        response = method(**kwargs)
+        return response
+
+    def _handle_fbv(self, request, endpoint, kwargs, environ, start_response):
+        allow_methods = endpoint.allow_methods
+        if request.method not in allow_methods:
+            return self.method_not_allowed_response_class()(environ, start_response)
+
+        # iterate process_view of middlewares
+        _process_view = self._iter_process_view(request, endpoint)
+        if isinstance(_process_view, Response):
+            return _process_view(environ, start_response)
+
+        response = endpoint(request, **kwargs)
+        return response
 
     def _process_response(self, response):
         if isinstance(response, tuple):
