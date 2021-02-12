@@ -47,15 +47,15 @@ class RequestHandler(object):
 
 class StaticFileHandler(RequestHandler):
 
-    def get(self, file_name: str):
+    def get(self, filename: str):
 
-        image_name_split = file_name.split('.')
+        filename_split = filename.split('.')
 
-        if 2 <= len(image_name_split) <= 3:
-            if len(image_name_split) == 2:
-                image_type = image_name_split[1]
+        if 2 <= len(filename_split) <= 3:
+            if len(filename_split) == 2:
+                image_type = filename_split[1]
             else:
-                image_type = image_name_split[1] + '.' + image_name_split[2]
+                image_type = filename_split[1] + '.' + filename_split[2]
 
             if image_type not in MIME_TYPE_MAPPING.keys():
                 return JSONResponse(
@@ -65,19 +65,20 @@ class StaticFileHandler(RequestHandler):
                 )
 
             handler_name = self.path.split('/')[1]
-            file_dir = self.application.static_file_handlers[handler_name]
-            file_path = os.path.join(file_dir, file_name)
-            if not os.path.exists(file_path):
-                return NotFoundResponse()
+            file_dir = self.application.static_file_handlers['/' + handler_name]
+            file_path = os.path.join(file_dir, filename)
 
             try:
                 with open(file_path, 'rb') as f:
-                    image = f.read()
+                    file = f.read()
 
                 return Response(
-                    image,
+                    file,
                     mimetype=MIME_TYPE_MAPPING[image_type]
                 )
+
+            except FileNotFoundError:
+                return NotFoundResponse()
 
             except:
                 traceback.print_exc()

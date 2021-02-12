@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Type
 from inspect import isfunction
 from typing import Callable
@@ -74,7 +75,8 @@ class Rocinante(object):
         else:
             self.method_not_allowed_response_class = method_not_allowed_response_class
 
-    def __call__(self, environ: dict, start_response):
+    def wsgi_app(self, environ: dict, start_response):
+
         request = self.request_class(environ)
 
         # iterate process_request of middlewares
@@ -108,6 +110,11 @@ class Rocinante(object):
             # try to match the endpoint and kwargs
             try:
                 endpoint, kwargs = adapter.match()
+
+                # If the response is complete
+                check_static_file_url = self._check_static_file_url(request, kwargs, environ, start_response)
+                if isinstance(check_static_file_url, ClosingIterator):
+                    return check_static_file_url
 
             except NotFound:
 
@@ -167,13 +174,12 @@ class Rocinante(object):
         if not prefix.startswith('/'):
             raise Exception('Invalid prefix.')
 
-        handler_name = prefix[1:]
-        if handler_name in self.static_file_handlers.keys():
-            raise Exception('This handler name is already exists.')
+        if prefix in self.static_file_handlers.keys():
+            raise Exception('This handler prefix is already exists.')
 
-        rule = prefix + '/<file_name>'
+        rule = prefix + '/<filename>'
         self.url_map.add(Rule(rule, endpoint=handler))
-        self.static_file_handlers[handler_name] = file_dir
+        self.static_file_handlers[prefix] = file_dir
 
     @staticmethod
     def startup():
@@ -210,6 +216,15 @@ class Rocinante(object):
 
     def run(self, host: str = '0.0.0.0', port: int = 8000, *, debug: bool = True):
         run_simple(host, port, self, use_debugger=debug, use_reloader=debug)
+
+    def _check_static_file_url(self, request, kwargs, environ, start_response):
+        for static_file_handlers_prefix in self.static_file_handlers.keys():
+            if request.path.startswith(static_file_handlers_prefix):
+                filename = kwargs['filename']
+                file_dir = self.static_file_handlers[static_file_handlers_prefix]
+                file_path = os.path.join(file_dir, filename)
+                if not os.path.exists(file_path):
+                    return self.not_found_response_class()(environ, start_response)
 
     def _handle_cbv(self, request, handler, kwargs, environ, start_response):
         method = getattr(handler, request.method.lower(), None)
@@ -374,3 +389,6 @@ class Rocinante(object):
         for method in methods:
             if method.lower() not in self.http_method_names:
                 raise Exception('Invalid methods')
+
+    def __call__(self, environ: dict, start_response):
+        return self.wsgi_app(environ, start_response)
