@@ -333,7 +333,7 @@
 
 #### A Simple Chat Room Example
 
-#####python
+python
 
     from typing import List
     
@@ -369,7 +369,7 @@
     if __name__ == '__main__':
         app.run()
 
-#####html
+html
 
     <!DOCTYPE html>
     <html lang="en">
