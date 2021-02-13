@@ -1,6 +1,10 @@
 import os
 import traceback
 
+from geventwebsocket import WebSocketError
+from geventwebsocket.resource import WebSocketApplication
+from geventwebsocket.websocket import WebSocket
+
 from .application import Rocinante
 from .request import Request
 from .response import Response, JSONResponse, NotFoundResponse
@@ -95,3 +99,40 @@ class StaticFileHandler(RequestHandler):
                     'error': 'Invalid file name.'
                 }
             )
+
+
+class WebsocketHandler(WebSocketApplication):
+
+    def __init__(self, ws):
+        super().__init__(ws)
+        self.ws: WebSocket = ws
+        self.request = Request(self.ws.environ)
+
+    def on_open(self):
+        pass
+
+    def on_message(self, message):
+        self.send(message)
+
+    def on_close(self, reason):
+        pass
+
+    def close(self, code: int = 1000, message: str = ''):
+        message = message.encode()
+        self.ws.close(code, message)
+
+    def send(self, message):
+        self.ws.send(message)
+
+    def handle(self):
+        self.protocol.on_open()
+
+        while True:
+            try:
+                message = self.ws.receive()
+            except WebSocketError:
+                self.protocol.on_close()
+                break
+
+            if not self.ws.closed:
+                self.protocol.on_message(message)

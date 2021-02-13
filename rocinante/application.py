@@ -3,16 +3,20 @@ import os
 from typing import Type
 from inspect import isfunction
 from typing import Callable
-from collections import Iterable
+from collections import Iterable, OrderedDict
 
 from werkzeug import run_simple, Response, Request as WerkzeugRequest
 from werkzeug.exceptions import NotFound
 from werkzeug.routing import Map, Rule
 from werkzeug.wsgi import ClosingIterator
+from geventwebsocket.resource import WebSocketApplication
+from gevent.pywsgi import WSGIServer
+from geventwebsocket.handler import WebSocketHandler as GeventWebSocketHandler
 
 from .request import Request
 from .config import Config
 from .cache import HandlerLRUCache
+from .websocket import WebsocketResource
 
 
 class Rocinante(object):
@@ -29,6 +33,12 @@ class Rocinante(object):
     _cache = HandlerLRUCache()
 
     static_file_handlers = {}
+
+    _websocket_resource = WebsocketResource()
+
+    websocket_apps = OrderedDict()
+
+    websocket_rul_map = Map()
 
     def __init__(
             self,
@@ -157,6 +167,25 @@ class Rocinante(object):
         # call response object and return it
         return response(environ, start_response)
 
+    def websocket_app(self, environ: dict, start_response):
+        # get adapter
+        adapter = self.websocket_rul_map.bind_to_environ(environ)
+
+        try:
+            adapter.match()
+
+            return self._websocket_resource(environ, start_response)
+
+        except NotFound:
+            return self.not_found_response_class()(environ, start_response)
+        # return self._websocket_resource(environ, start_response)
+
+    def add_websocket_handler(self, rule: str, handler: Type[WebSocketApplication]):
+        if not issubclass(handler, WebSocketApplication):
+            raise Exception('This handler must be subclass of "WebSocketApplication".')
+        self.websocket_rul_map.add(Rule(rule, endpoint=handler))
+        self.websocket_apps[rule] = handler
+
     def route(self, rule, *, methods=['GET']):
         self._check_methods(methods)
 
@@ -190,11 +219,22 @@ class Rocinante(object):
         return wrapper
 
     def include_router(self, router, *, prefix: str = None):
+        if not prefix.startswith('/'):
+            raise Exception('Invalid prefix.')
+
         for rule in router.rules:
             if prefix is None:
                 self.url_map.add(rule)
             else:
                 self.url_map.add(Rule(prefix + rule.rule, endpoint=rule.endpoint))
+
+        for websocket_rule in router.websocket_rules:
+            if prefix is None:
+                self.websocket_rul_map.add(websocket_rule)
+                self.websocket_apps[websocket_rule.rule] = websocket_rule.endpoint
+            else:
+                self.websocket_rul_map.add(Rule(prefix + websocket_rule.rule, endpoint=websocket_rule.endpoint))
+                self.websocket_apps[prefix + websocket_rule.rule] = websocket_rule.endpoint
 
     def add_middleware(self, middleware, **kwargs):
         self._middlewares.append(middleware(self, **kwargs))
@@ -215,7 +255,12 @@ class Rocinante(object):
         self._mounted_wsgi_apps[path] = app
 
     def run(self, host: str = '0.0.0.0', port: int = 8000, *, debug: bool = True):
-        run_simple(host, port, self, use_debugger=debug, use_reloader=debug)
+        if not self.websocket_apps:
+            run_simple(host, port, self, use_debugger=debug, use_reloader=debug)
+        else:
+            print('Detected websocket, use gevent to run.')
+            server = WSGIServer((host, port), self, handler_class=GeventWebSocketHandler)
+            server.serve_forever()
 
     def _check_static_file_url(self, request, kwargs, environ, start_response):
         for static_file_handlers_prefix in self.static_file_handlers.keys():
@@ -391,4 +436,7 @@ class Rocinante(object):
                 raise Exception('Invalid methods')
 
     def __call__(self, environ: dict, start_response):
-        return self.wsgi_app(environ, start_response)
+        if 'wsgi.websocket' not in environ.keys():
+            return self.wsgi_app(environ, start_response)
+        else:
+            return self.websocket_app(environ, start_response)
