@@ -10,5 +10,7 @@ setuptools.setup(
     python_requires='>=3',
     install_requires=[
         "Werkzeug>=0.15",
+        "gevent",
+        "gevent-websocket"
     ]
 )
