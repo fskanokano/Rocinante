@@ -184,7 +184,7 @@
     if __name__ == '__main__':
         app.run('0.0.0.0', 8000)
 
-#### Integrated Extension
+#### Integrate Extension
 
     from rocinante import Rocinante, RequestHandler
     from mysql.connector.pooling import MySQLConnectionPool
@@ -333,6 +333,8 @@
 
 #### A Simple Chat Room Example
 
+#####python
+
     from typing import List
     
     from rocinante import Rocinante
@@ -366,6 +368,36 @@
     
     if __name__ == '__main__':
         app.run()
+
+#####html
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>chat</title>
+        <script src="http://apps.bdimg.com/libs/jquery/1.9.1/jquery.min.js"></script>
+    </head>
+    <body>
+    <div id="chat" style="width: 500px;height: 500px;overflow: auto;border:solid 1px" readonly>
+    </div>
+    <div>
+        <input type="text" id="content">
+        <input type="button" id="send" value="send">
+    </div>
+    <script>
+        let ws = new WebSocket('ws://127.0.0.1:8000/chat')
+        ws.onmessage = function (e) {
+            $('#chat').append('<p>' + e.data + '</p>')
+        }
+        $('#send').click(function () {
+            let content = $('#content')
+            ws.send(content.val())
+            content.val('')
+        })
+    </script>
+    </body>
+    </html>
 
 #### Integrate Socket.IO
 
