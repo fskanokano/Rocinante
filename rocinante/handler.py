@@ -14,31 +14,19 @@ from .mime_type_mapping import MIME_TYPE_MAPPING
 class RequestHandler(object):
     http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']
 
-    def __init__(self, application: Rocinante, request: Request):
+    def __init__(self, application: Rocinante):
         self.application = application
-        self.request = request
-        self.url = request.url
-        self.path = request.path
-        self.json = request.json
-        self.form = request.form
-        self.args = request.args
-        self.headers = request.headers
-        self.cookies = request.cookies
-        self.files = request.files
 
-        # set mixin extension to handler
+    def _set_extension(self):
+        """
+        This method is deprecated since Rocinante 1.6.
+        """
         for mixin_class in self._mixin_classes:
-            mixin = mixin_class(application)
+            mixin = mixin_class(self.application)
             mixin_extensions = [attr for attr in dir(mixin) if
                                 not attr.startswith('__') and not callable(getattr(mixin, attr))]
             for mixin_extension in mixin_extensions:
                 setattr(self, mixin_extension, getattr(mixin, mixin_extension))
-
-    def reload_request(self, request: Request):
-        self.__init__(
-            application=self.application,
-            request=request,
-        )
 
     @property
     def _mixin_classes(self):
@@ -51,7 +39,7 @@ class RequestHandler(object):
 
 class StaticFileHandler(RequestHandler):
 
-    def get(self, filename: str):
+    def get(self, request: Request, filename: str):
 
         filename_split = filename.split('.')
 
@@ -68,7 +56,7 @@ class StaticFileHandler(RequestHandler):
                     }
                 )
 
-            handler_name = self.path.split('/')[1]
+            handler_name = request.path.split('/')[1]
             file_dir = self.application.static_file_handlers['/' + handler_name]
             file_path = os.path.join(file_dir, filename)
 

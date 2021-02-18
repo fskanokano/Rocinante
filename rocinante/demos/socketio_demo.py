@@ -3,7 +3,7 @@ import socketio
 from gevent import pywsgi
 from geventwebsocket.handler import WebSocketHandler
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 sio = socketio.Server(async_mode='gevent')
 

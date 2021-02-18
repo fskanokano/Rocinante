@@ -1,6 +1,6 @@
 from rocinante import Rocinante, Request
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 
 @app.route('/')

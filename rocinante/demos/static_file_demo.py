@@ -1,7 +1,7 @@
 from rocinante import Rocinante
 from rocinante.handler import StaticFileHandler
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 app.add_static_file_handler(
     handler=StaticFileHandler,

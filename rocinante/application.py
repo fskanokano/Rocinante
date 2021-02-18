@@ -5,18 +5,22 @@ from inspect import isfunction
 from typing import Callable
 from collections import Iterable, OrderedDict
 
-from werkzeug import run_simple, Response, Request as WerkzeugRequest
+from werkzeug import run_simple, Response
 from werkzeug.exceptions import NotFound
 from werkzeug.routing import Map, Rule
 from werkzeug.wsgi import ClosingIterator
 from geventwebsocket.resource import WebSocketApplication
 from gevent.pywsgi import WSGIServer
 from geventwebsocket.handler import WebSocketHandler as GeventWebSocketHandler
+from a2wsgi import ASGIMiddleware
+from jinja2 import Environment, FileSystemLoader
 
 from .request import Request
+from .response import Render
 from .config import Config
 from .cache import HandlerLRUCache
 from .websocket import WebsocketResource
+from .request_arguments_types import SUPPORT_ARGUMENTS_MAPPING
 
 
 class Rocinante(object):
@@ -42,7 +46,8 @@ class Rocinante(object):
 
     def __init__(
             self,
-            request_class: Type[WerkzeugRequest] = Request,
+            import_name: str,
+            request_class: Type[Request] = Request,
             response_class: Type[Response] = Response,
             json_response_class: Type[Response] = None,
             not_found_response_class: Type[Response] = None,
@@ -50,8 +55,11 @@ class Rocinante(object):
             handler_cache_capacity: int = 128
     ):
         """
-        accept subclass of werkzeug.Request or subclass of werkzeug.Response
+        accept subclass of Rocinante.Request or subclass of werkzeug.Response
         """
+
+        file_loader = self._get_file_loader(import_name)
+        self.template_environment = Environment(loader=file_loader)
 
         # make sure request class and response class is correct
         self._check_request_class(request_class)
@@ -103,9 +111,6 @@ class Rocinante(object):
             handler = cached_dict['handler']
             kwargs = cached_dict['kwargs']
 
-            # reload request to cached handler
-            handler.reload_request(request)
-
             response = self._handle_cbv(request, handler, kwargs, environ, start_response)
             # If the response is complete
             if isinstance(response, ClosingIterator):
@@ -145,7 +150,7 @@ class Rocinante(object):
                 if isinstance(response, ClosingIterator):
                     return response
             else:
-                handler = endpoint(application=self, request=request)
+                handler = endpoint(application=self)
 
                 self._cache.set(request.path, {
                     'handler': handler,
@@ -178,7 +183,6 @@ class Rocinante(object):
 
         except NotFound:
             return self.not_found_response_class()(environ, start_response)
-        # return self._websocket_resource(environ, start_response)
 
     def add_websocket_handler(self, rule: str, handler: Type[WebSocketApplication]):
         if not issubclass(handler, WebSocketApplication):
@@ -246,6 +250,7 @@ class Rocinante(object):
         return self._config.get_config(name)
 
     def mount_wsgi_app(self, app: Callable, *, path: str):
+
         if not path.startswith('/'):
             raise Exception('Invalid path.')
 
@@ -254,13 +259,80 @@ class Rocinante(object):
 
         self._mounted_wsgi_apps[path] = app
 
+    def mount_asgi_app(self, app: Callable, *, path: str):
+
+        if not callable(app):
+            raise Exception('Invalid asgi application.')
+
+        wsgi_app = ASGIMiddleware(app)
+
+        self.mount_wsgi_app(wsgi_app, path=path)
+
     def run(self, host: str = '0.0.0.0', port: int = 8000, *, debug: bool = True):
+
         if not self.websocket_apps:
             run_simple(host, port, self, use_debugger=debug, use_reloader=debug)
+
         else:
             print('Detected websocket, use gevent to run.')
             server = WSGIServer((host, port), self, handler_class=GeventWebSocketHandler)
             server.serve_forever()
+
+    @staticmethod
+    def _get_file_loader(import_name: str):
+        root_dir = os.path.dirname(os.path.abspath(import_name))
+        loader = FileSystemLoader(root_dir)
+        return loader
+
+    def _build_request_arguments(self, original_arguments: dict, request: Request, annotations: dict):
+        request_arguments = {}
+
+        reverse_annotations = {
+            value: key for key, value in annotations.items() if key not in original_arguments
+        }
+
+        adapted_arguments_mapping = self._adapt_arguments_mapping(reverse_annotations)
+
+        args_mapping = {
+            key: {'position_name': value, 'mapping_name': adapted_arguments_mapping[key]} for key, value in
+            reverse_annotations.items()
+        }
+
+        for arg_type, arg_name_dict in args_mapping.items():
+            position_name = arg_name_dict['position_name']
+            mapping_name = arg_name_dict['mapping_name']
+            if mapping_name == 'request':
+                request_arguments[position_name] = request
+            else:
+                request_arguments[position_name] = getattr(request, mapping_name)
+
+        request_arguments.update(original_arguments)
+
+        return request_arguments
+
+    @staticmethod
+    def _adapt_arguments_mapping(reverse_annotations: dict):
+
+        adapted_arguments_mapping = SUPPORT_ARGUMENTS_MAPPING.copy()
+
+        for arg_type in reverse_annotations:
+
+            if SUPPORT_ARGUMENTS_MAPPING.get(arg_type, None) is None:
+
+                adapted = False
+
+                for support_type in SUPPORT_ARGUMENTS_MAPPING:
+                    if issubclass(arg_type, support_type):
+                        adapted_arguments_mapping[arg_type] = adapted_arguments_mapping.pop(support_type)
+                        adapted = True
+                        break
+
+                if not adapted:
+                    raise Exception(
+                        f'Unsupported request argument:{reverse_annotations[arg_type]}. Wrong argument type:{arg_type}'
+                    )
+
+        return adapted_arguments_mapping
 
     def _check_static_file_url(self, request, kwargs, environ, start_response):
         for static_file_handlers_prefix in self.static_file_handlers.keys():
@@ -285,10 +357,9 @@ class Rocinante(object):
         if isinstance(_process_view, Response):
             return _process_view(environ, start_response)
 
-        # reload the handler to keep the change of request
-        handler.reload_request(request)
+        request_arguments = self._build_request_arguments(kwargs, request, method.__annotations__)
 
-        response = method(**kwargs)
+        response = method(**request_arguments)
         return response
 
     def _handle_fbv(self, request, endpoint, kwargs, environ, start_response):
@@ -301,7 +372,9 @@ class Rocinante(object):
         if isinstance(_process_view, Response):
             return _process_view(environ, start_response)
 
-        response = endpoint(request, **kwargs)
+        request_arguments = self._build_request_arguments(kwargs, request, endpoint.__annotations__)
+
+        response = endpoint(**request_arguments)
         return response
 
     def _process_response(self, response):
@@ -319,6 +392,12 @@ class Rocinante(object):
             if not isinstance(status_code, int):
                 raise Exception('Invalid status code.')
             processed_response = self._make_response(content, status_code)
+
+        # process the render response
+        elif isinstance(response, Render):
+            response.reload_render(self)
+            processed_response = response.render()
+
         else:
             if not isinstance(response, Iterable):
                 raise Exception('Invalid Iterable object.')
@@ -328,7 +407,7 @@ class Rocinante(object):
     @staticmethod
     def _check_request_class(*request_classes):
         for request_class in request_classes:
-            if not issubclass(request_class, WerkzeugRequest):
+            if not issubclass(request_class, Request):
                 raise Exception('Invalid request class.')
 
     @staticmethod

@@ -1,5 +1,5 @@
-from werkzeug import Request, Response
-from rocinante import Rocinante
+from werkzeug import Response
+from rocinante import Rocinante, Request
 
 
 class MyRequest(Request):
@@ -17,6 +17,7 @@ class MyResponse(Response):
 
 
 app = Rocinante(
+    __name__,
     request_class=MyRequest,
     response_class=MyResponse
 )

@@ -1,6 +1,6 @@
 from rocinante import Rocinante
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 
 @app.startup()

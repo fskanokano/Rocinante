@@ -4,7 +4,7 @@ from rocinante import Rocinante
 from rocinante.handler import WebsocketHandler
 from geventwebsocket.websocket import WebSocket
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 
 class ChatWebsocketHandler(WebsocketHandler):

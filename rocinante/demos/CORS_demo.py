@@ -1,7 +1,7 @@
 from rocinante import Rocinante
 from rocinante.middleware import CORSMiddleware
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 app.add_middleware(CORSMiddleware)
 

@@ -1,23 +1,23 @@
 from rocinante import Rocinante, RequestHandler, Router, Request, Url
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 
 # other way to register handler
 class HelloHandler(RequestHandler):
 
-    def get(self):
-        print(self.url)
+    def get(self, request: Request):
+        print(request.url)
         return 'get!'
 
-    def post(self):
-        print(self.url)
+    def post(self, request: Request):
+        print(request.url)
         return 'post!'
 
 
 app.add_handler('/', HelloHandler)
 
-# user router
+# use router
 router = Router()
 
 # different way to register handler

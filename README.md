@@ -10,7 +10,7 @@
 
     from rocinante import Rocinante, Request
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     
     @app.route('/')
@@ -21,22 +21,122 @@
     if __name__ == '__main__':
         app.run('0.0.0.0', 8000)
 
+#### Request Arguments
+
+Rocinante will only pass in the arguments that you need.
+
+Make sure that these arguments declare types.
+
+The original path arguments are not affected by these arguments. Rocinante knows how to handle it.
+
+The supported arguments types are:
+
+    Request, RequestHeaders, RequestCookies, RequestForm, RequestFiles, RequestArgs,RequestJSON, RequestBody
+
+Example:
+
+    from rocinante import Rocinante, RequestHandler, Request, RequestHeaders, RequestCookies, RequestForm, RequestFiles, \
+        RequestArgs, RequestJSON, RequestBody
+    
+    app = Rocinante(__name__)
+    
+    
+    class ArgumentsHandler(RequestHandler):
+    
+        # get all request arguments
+        def get(
+                self,
+                request: Request,
+                headers: RequestHeaders,
+                cookies: RequestCookies,
+                form: RequestForm,
+                files: RequestFiles,
+                args: RequestArgs,
+                json: RequestJSON,
+                body: RequestBody
+        ):
+            print(request)
+            print(headers)
+            print(cookies)
+            print(form)
+            print(files)
+            print(args)
+            print(json)
+            print(body)
+    
+            return 'all request arguments'
+    
+        # get specific request arguments
+        def post(
+                self,
+                cookies: RequestCookies,
+                headers: RequestHeaders,
+                body: RequestBody
+        ):
+            print(cookies)
+            print(headers)
+            print(body)
+    
+            return 'specific request arguments'
+    
+    
+    class PathHandler(RequestHandler):
+    
+        def get(self, request: Request, path_id, headers: RequestHeaders):
+            print(request)
+            print(path_id)
+            print(headers)
+    
+            return 'ok'
+    
+    
+    app.add_handler('/arguments', ArgumentsHandler)
+    app.add_handler('/path/<path_id>', PathHandler)
+    
+    if __name__ == '__main__':
+        app.run()
+
+
+#### Template
+
+    from rocinante import Rocinante, Render, Request, RequestHeaders
+    
+    app = Rocinante(__name__)
+    
+    
+    @app.route('/')
+    def index(request: Request, headers: RequestHeaders):
+        url = request.url
+    
+        return Render(
+            # template path
+            'templates/index.html',
+            status=400,
+            # pass the context to template
+            url=url,
+            headers=headers
+        )
+    
+    
+    if __name__ == '__main__':
+        app.run()
+
 #### Router
 
     from rocinante import Rocinante, RequestHandler, Router, Request, Url
 
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     
     # other way to register handler
     class HelloHandler(RequestHandler):
     
-        def get(self):
-            print(self.url)
+        def get(self, request: Request):
+            print(request.url)
             return 'get!'
     
-        def post(self):
-            print(self.url)
+        def post(self, request: Request):
+            print(request.url)
             return 'post!'
     
     
@@ -153,7 +253,7 @@
 
     from rocinante import Rocinante
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     
     @app.startup()
@@ -164,22 +264,32 @@
     if __name__ == '__main__':
         app.run('0.0.0.0', 8000)
 
-#### Mount WSGI Application
+#### Mount WSGI Application And ASGI Application
 
     from rocinante import Rocinante
     from flask import Flask
+    from fastapi import FastAPI
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     flask_app = Flask(__name__)
     
+    fastapi_app = FastAPI()
+    
     
     @flask_app.route('/index')
-    def flask_test():
-        return 'flask_index!'
+    def flask_index():
+        return 'flask index!'
+    
+    
+    @fastapi_app.get('/index')
+    def fastapi_index():
+        return 'fastapi index!'
     
     
     app.mount_wsgi_app(flask_app, path='/flask')
+    
+    app.mount_asgi_app(fastapi_app, path='/fastapi')
     
     if __name__ == '__main__':
         app.run('0.0.0.0', 8000)
@@ -189,29 +299,22 @@
     from rocinante import Rocinante, RequestHandler
     from mysql.connector.pooling import MySQLConnectionPool
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
-    
-    # config class
-    class MySQLConfig(object):
-        pool_size = 2
-        host = '127.0.0.1'
-        port = 3306
-        database = 'Rocinante'
-        user = 'root'
-        password = '123456'
-        pool_reset_session = True
-    
-    
-    # load config to app
-    app.load_config('mysql', MySQLConfig)
+    # mysql config
+    mysql_config = {
+        'pool_size': 2,
+        'host': '127.0.0.1',
+        'port': 3306,
+        'database': 'glow_serializer',
+        'user': 'root',
+        'password': '123456',
+        'pool_reset_session': True
+    }
     
     
     class MySQLMixin(object):
-        def __init__(self, application: Rocinante):
-            # get config from app
-            mysql_config = application.get_config('mysql')
-            self.mysql_pool = MySQLConnectionPool(**mysql_config)
+        mysql_pool = MySQLConnectionPool(**mysql_config)
     
     
     class MySQLHandler(RequestHandler, MySQLMixin):
@@ -223,8 +326,10 @@
             cursor.execute(sql)
             res = cursor.fetchall()
     
-            connection.close()
             cursor.close()
+            connection.close()
+    
+            print(res)
     
             return res
     
@@ -239,7 +344,7 @@
     from rocinante import Rocinante
     from rocinante.middleware import CORSMiddleware
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     app.add_middleware(CORSMiddleware)
     
@@ -248,8 +353,8 @@
 
 #### Replace Request Class And Response Class
 
-    from werkzeug import Request, Response
-    from rocinante import Rocinante
+    from werkzeug import Response
+    from rocinante import Rocinante, Request
     
     
     class MyRequest(Request):
@@ -267,6 +372,7 @@
     
     
     app = Rocinante(
+        __name__,
         request_class=MyRequest,
         response_class=MyResponse
     )
@@ -288,7 +394,7 @@
     from rocinante import Rocinante
     from rocinante.handler import StaticFileHandler
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     app.add_static_file_handler(
         handler=StaticFileHandler,
@@ -310,7 +416,7 @@
     from rocinante import Rocinante
     from rocinante.handler import WebsocketHandler
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     
     class EchoWebsocketHandler(WebsocketHandler):
@@ -341,7 +447,7 @@ python
     from rocinante.handler import WebsocketHandler
     from geventwebsocket.websocket import WebSocket
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     
     class ChatWebsocketHandler(WebsocketHandler):
@@ -406,7 +512,7 @@ html
     from gevent import pywsgi
     from geventwebsocket.handler import WebSocketHandler
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     sio = socketio.Server(async_mode='gevent')
     
@@ -434,4 +540,4 @@ html
 
 #### Demos
 
-    Check demos in the package "demos"
+    Check demos in the package "demos".

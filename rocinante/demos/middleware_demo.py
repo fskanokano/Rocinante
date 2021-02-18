@@ -2,7 +2,7 @@ from rocinante import Rocinante, Request, Response
 from rocinante.middleware import Middleware
 from rocinante.decorator import process_view_exempt
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 
 class TestMiddleware(Middleware):
@@ -17,14 +17,14 @@ class TestMiddleware(Middleware):
 
     def process_response(self, request: Request, response: Response):
         print(request.url)
-        response.status = 400
+        response.status_code = 400
 
 
-app.add_middleware(Middleware)
+app.add_middleware(TestMiddleware)
 
 
 @app.route('/')
-def index(request):
+def index(request: Request):
     print(request.url)
     return 'ok'
 
@@ -32,7 +32,7 @@ def index(request):
 @app.route('/exempt')
 # use this decorator to exempt from process view
 @process_view_exempt
-def exempt(request):
+def exempt(request: Request):
     print(request.url)
     return 'ok'
 

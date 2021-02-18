@@ -1,29 +1,22 @@
 from rocinante import Rocinante, RequestHandler
 from mysql.connector.pooling import MySQLConnectionPool
 
-app = Rocinante()
+app = Rocinante(__name__)
 
-
-# config class
-class MySQLConfig(object):
-    pool_size = 2
-    host = '127.0.0.1'
-    port = 3306
-    database = 'Rocinante'
-    user = 'root'
-    password = '123456'
-    pool_reset_session = True
-
-
-# load config to app
-app.load_config('mysql', MySQLConfig)
+# mysql config
+mysql_config = {
+    'pool_size': 2,
+    'host': '127.0.0.1',
+    'port': 3306,
+    'database': 'glow_serializer',
+    'user': 'root',
+    'password': '123456',
+    'pool_reset_session': True
+}
 
 
 class MySQLMixin(object):
-    def __init__(self, application: Rocinante):
-        # get config from app
-        mysql_config = application.get_config('mysql')
-        self.mysql_pool = MySQLConnectionPool(**mysql_config)
+    mysql_pool = MySQLConnectionPool(**mysql_config)
 
 
 class MySQLHandler(RequestHandler, MySQLMixin):
@@ -35,8 +28,10 @@ class MySQLHandler(RequestHandler, MySQLMixin):
         cursor.execute(sql)
         res = cursor.fetchall()
 
-        connection.close()
         cursor.close()
+        connection.close()
+
+        print(res)
 
         return res
 

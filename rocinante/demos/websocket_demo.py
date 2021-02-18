@@ -1,7 +1,7 @@
 from rocinante import Rocinante
 from rocinante.handler import WebsocketHandler
 
-app = Rocinante()
+app = Rocinante(__name__)
 
 
 class EchoWebsocketHandler(WebsocketHandler):
