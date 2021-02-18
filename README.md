@@ -211,7 +211,7 @@ Example:
     from rocinante.middleware import Middleware
     from rocinante.decorator import process_view_exempt
     
-    app = Rocinante()
+    app = Rocinante(__name__)
     
     
     class TestMiddleware(Middleware):
