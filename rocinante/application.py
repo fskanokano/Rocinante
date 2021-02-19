@@ -42,7 +42,7 @@ class Rocinante(object):
 
     websocket_apps = OrderedDict()
 
-    websocket_rul_map = Map()
+    websocket_url_map = Map()
 
     def __init__(
             self,
@@ -174,7 +174,7 @@ class Rocinante(object):
 
     def websocket_app(self, environ: dict, start_response):
         # get adapter
-        adapter = self.websocket_rul_map.bind_to_environ(environ)
+        adapter = self.websocket_url_map.bind_to_environ(environ)
 
         try:
             adapter.match()
@@ -187,7 +187,7 @@ class Rocinante(object):
     def add_websocket_handler(self, rule: str, handler: Type[WebSocketApplication]):
         if not issubclass(handler, WebSocketApplication):
             raise Exception('This handler must be subclass of "WebSocketApplication".')
-        self.websocket_rul_map.add(Rule(rule, endpoint=handler))
+        self.websocket_url_map.add(Rule(rule, endpoint=handler))
         self.websocket_apps[rule] = handler
 
     def route(self, rule, *, methods=['GET']):
@@ -234,10 +234,10 @@ class Rocinante(object):
 
         for websocket_rule in router.websocket_rules:
             if prefix is None:
-                self.websocket_rul_map.add(websocket_rule)
+                self.websocket_url_map.add(websocket_rule)
                 self.websocket_apps[websocket_rule.rule] = websocket_rule.endpoint
             else:
-                self.websocket_rul_map.add(Rule(prefix + websocket_rule.rule, endpoint=websocket_rule.endpoint))
+                self.websocket_url_map.add(Rule(prefix + websocket_rule.rule, endpoint=websocket_rule.endpoint))
                 self.websocket_apps[prefix + websocket_rule.rule] = websocket_rule.endpoint
 
     def add_middleware(self, middleware, **kwargs):
